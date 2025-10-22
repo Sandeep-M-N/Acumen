@@ -1,0 +1,81 @@
+trigger:
+  - dev
+
+parameters:
+  - name: environment
+    displayName: Choose environment
+    type: string
+    default: 'dev'
+    values:
+      - dev
+      - qa
+
+variables:
+  - ${{ if eq(parameters.environment, 'dev') }}:
+      - group: dev-key-vault-variablegrp
+  - ${{ if eq(parameters.environment, 'qa') }}:
+      - group: qa-key-vault-variablegrp
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  - stage: Build
+    displayName: Python Build Stage
+    jobs:
+      - job: PythonBuild
+        displayName: Build Python Package
+        steps:
+          - script: |
+              curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+              curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+              sudo apt-get update
+              sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+            displayName: "Install SQL Server ODBC Driver"
+
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '3.12'
+            displayName: 'Use Python 3.12'
+
+          - script: |
+              python -m venv antenv
+              source antenv/bin/activate
+              pip install -r requirements.txt
+            workingDirectory: $(System.DefaultWorkingDirectory)
+            displayName: 'Install Python dependencies'
+
+          - task: PowerShell@2
+            displayName: 'Overwrite .env.production from Key Vault secrets'
+            inputs:
+              targetType: 'inline'
+              script: |
+                $envVars = @{}
+                $envVars["AZURE_STORAGE_CONNECTION_STRING"] = "$(azure-storage-connection-string)"
+                $envVars["AZURE_STORAGE_CONTAINER_NAME"] = "$(azure-storage-container-name)"
+                $envVars["DATABASE_URL"] = "$(database-url)"
+                $envVars["BASE_BLOB_PATH"] = "$(base-blob-path)"
+                $envVars["AZURE_TENANT_ID"] = "$(azure-tenant-id)"
+                $envVars["AZURE_CLIENT_ID"] = "$(azure-client-id)"
+                $envVars["DATABASE_URL_FILES"] = "$(database-url-files)"
+                $envVars["BASE_RAW_PATH"] = "$(base-raw-path)"
+                $envVars["AZURE_OPENAI_API_KEY"] = "$(azure-openai-api-key)"
+                $envVars["AZURE_OPENAI_ENDPOINT"] = "$(azure-openai-endpoint)"
+                $envVars["OPENAI_API_VERSION"] = "$(openai-api-version)"
+                $envVars["AZURE_OPENAI_DEPLOYMENT_NAME"] = "$(azure-openai-deployment-name)"
+                $envVars["LLMProvider"] = "$(llmprovider)"
+                $envVars["LANGSMITH_TRACING"] = "$(langsmith-tracing)"
+                $envVars["LANGSMITH_ENDPOINT"] = "$(langsmith-endpoint)"
+                $envVars["LANGSMITH_API_KEY"] = "$(langsmith-api-key)"
+                $envVars["LANGSMITH_PROJECT"] = "$(langsmith-project)"
+
+                $envFileContent = $envVars.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }
+                $envFileContent | Out-File -FilePath .env -Encoding ascii
+
+          - script: |
+              echo "Running Alembic migration..."
+              source antenv/bin/activate
+              export $(grep -v '^#' .env | xargs)  # Load .env into environment
+              alembic upgrade head
+            workingDirectory: $(System.DefaultWorkingDirectory)
+            displayName: 'Run Alembic Migration'

@@ -1,0 +1,89 @@
+trigger:
+- main
+
+parameters:
+- name: environment
+  displayName: Target Environment
+  type: string
+  default: prod
+  values:
+  - prod
+ 
+variables:
+  - ${{ if eq(parameters.environment, 'prod') }}:
+      - group: prod-key-vault-variablegrp
+
+
+  - name: projectRoot
+    value: $(System.DefaultWorkingDirectory)
+  - name: pythonVersion
+    value: '3.12'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+- stage: Build
+  displayName: Build stage
+  jobs:
+  - job: BuildJob
+    displayName: Build Job
+    pool:
+      vmImage: 'ubuntu-latest'
+
+    steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '$(pythonVersion)'
+      displayName: 'Use Python $(pythonVersion)'
+
+    - script: |
+        pip install -r requirements.txt
+      workingDirectory: $(projectRoot)
+      displayName: 'Install Python Requirements'
+
+    - task: PowerShell@2
+      displayName: 'Overwrite .env.production from Key Vault secrets'
+      inputs:
+        targetType: 'inline'
+        script: |
+          $envVars = @{
+              "AZURE_STORAGE_CONNECTION_STRING" = "$(azure-storage-connection-string)"
+              "AZURE_STORAGE_CONTAINER_NAME" = "$(azure-storage-container-name)"
+              "DATABASE_URL" = "$(database-url)"
+              "BASE_BLOB_PATH" = "$(base-blob-path)"
+              "AZURE_TENANT_ID" = "$(azure-tenant-id)"
+              "AZURE_CLIENT_ID" = "$(azure-client-id)"
+              "DATABASE_URL_FILES" = "$(database-url-files)"
+              "BASE_RAW_PATH" = "$(base-raw-path)"
+              "AZURE_OPENAI_API_KEY" = "$(azure-openai-api-key)"
+              "AZURE_OPENAI_ENDPOINT" = "$(azure-openai-endpoint)"
+              "OPENAI_API_VERSION" = "$(openai-api-version)"
+              "AZURE_OPENAI_DEPLOYMENT_NAME" = "$(azure-openai-deployment-name)"
+              "LLMProvider" = "$(llmprovider)"
+              "LANGSMITH_TRACING" = "$(langsmith-tracing)"
+              "LANGSMITH_ENDPOINT" = "$(langsmith-endpoint)"
+              "LANGSMITH_API_KEY" = "$(langsmith-api-key)"
+              "LANGSMITH_PROJECT" = "$(langsmith-project)"
+              "REDIS_URL" = "$(redis-url)"
+              "REDIS_CONFIG" = "$(redis-config)"
+          }
+
+          $envFilePath = "$(projectRoot)/.env"
+          Remove-Item -Path $envFilePath -Force -ErrorAction SilentlyContinue
+          $envVars.GetEnumerator() | ForEach-Object {
+              Add-Content -Path $envFilePath -Value "$($_.Key)=$($_.Value)"
+          }
+
+    - task: ArchiveFiles@2
+      displayName: 'Archive project folder'
+      inputs:
+        rootFolderOrFile: '$(projectRoot)'
+        includeRootFolder: false
+        archiveType: zip
+        archiveFile: $(Build.ArtifactStagingDirectory)/Python.zip
+        replaceExistingArchive: true
+
+    - publish: $(Build.ArtifactStagingDirectory)/Python.zip
+      displayName: 'Upload artifact'
+      artifact: drop

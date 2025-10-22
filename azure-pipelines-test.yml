@@ -1,0 +1,75 @@
+trigger:
+- none   # backend repo branch
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+# Step 1: Set Python version
+- task: UsePythonVersion@0
+  inputs:
+    versionSpec: '3.12'
+  displayName: 'Set Python 3.12'
+
+# Step 2: Install dependencies
+- script: |
+    python -m pip install --upgrade pip
+    if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    pip install pytest pytest-cov fastapi
+  displayName: 'Install dependencies'
+
+# Step 3: Run Unit Tests + generate JUnit results
+- script: |
+    echo "Running Unit Tests..."
+    pytest --junitxml=unit-test-results.xml tests/unit/
+  displayName: 'Run Unit Tests'
+
+# Step 4: Run Integration Tests + generate JUnit results
+- script: |
+    echo "Running Integration Tests..."
+    pytest --junitxml=integration-test-results.xml tests/integration/
+  displayName: 'Run Integration Tests'
+  condition: succeededOrFailed()   # Run even if unit tests failed
+
+# Step 5: Publish all test results to Azure DevOps
+- task: PublishTestResults@2
+  inputs:
+    testResultsFiles: '**/*-test-results.xml'
+    mergeTestResults: true
+    testRunTitle: 'Pytest Results'
+  condition: always()
+  displayName: 'Publish Test Results'
+
+# Step 6: Generate Coverage Report
+- script: |
+    echo "Generating Coverage Report..."
+    pytest --cov=app --cov-report=html --cov-report=xml tests/
+  displayName: 'Generate Coverage Report'
+  condition: succeededOrFailed()   # Run even if tests failed
+
+# Step 7: Publish coverage results
+- task: PublishCodeCoverageResults@2
+  inputs:
+    codeCoverageTool: 'Cobertura'
+    summaryFileLocation: '$(System.DefaultWorkingDirectory)/**/coverage.xml'
+    reportDirectory: '$(System.DefaultWorkingDirectory)/**/htmlcov'
+    failIfCoverageEmpty: true
+  condition: always()
+  displayName: 'Publish Code Coverage Results'
+
+# Step 8: Archive files
+- task: ArchiveFiles@2
+  displayName: 'Archive project folder'
+  inputs:
+    rootFolderOrFile: '$(projectRoot)'
+    includeRootFolder: false
+    archiveType: zip
+    archiveFile: $(Build.ArtifactStagingDirectory)/Python.zip
+    replaceExistingArchive: true
+  condition: succeeded()   # Only archive if everything passed
+
+# Step 9: Upload artifact
+- publish: $(Build.ArtifactStagingDirectory)/Python.zip
+  displayName: 'Upload artifact'
+  artifact: drop
+  condition: succeeded()   # Only upload if everything passed

@@ -1,0 +1,51 @@
+fastapi[standard]
+
+# Database
+sqlalchemy>=1.4
+asyncpg
+alembic
+
+# Pydantic for validation
+pydantic[email]
+
+# Authentication / JWT
+python-jose[cryptography]
+httpx
+
+# Azure Integration
+azure-identity
+azure-keyvault-secrets
+azure-monitor-opentelemetry
+
+
+
+# CORS and Logging
+loguru
+
+# Testing
+pytest
+pytest-asyncio
+pytest-cov
+httpx[http2]         # For async test client
+
+pydantic-settings
+psycopg2-binary
+coverage
+pandas
+pyodbc
+pyreadstat
+numpy
+azure-storage-blob
+openpyxl
+xlsxwriter
+uvicorn
+gunicorn
+
+#Log to client
+beautifulsoup4
+
+#AI
+langgraph
+langchain-community==0.3.27
+langchain[openai]
+langgraph-checkpoint-redis
